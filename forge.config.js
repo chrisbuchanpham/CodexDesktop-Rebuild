@@ -11,30 +11,129 @@ const TARGET_TRIPLE_MAP = {
   "win32-x64": "x86_64-pc-windows-msvc",
 };
 
-// 获取 codex 二进制路径（优先本地，其次 npm）
-function getCodexBinaryPath(platform, arch) {
-  const platformArch = `${platform}-${arch}`;
-  const binaryName = platform === "win32" ? "codex.exe" : "codex";
+const CODEX_NODE_MODULE_PACKAGES = [
+  (platformArch) => `@openai/codex-${platformArch}`,
+  () => "@openai/codex",
+  () => "@cometix/codex",
+];
 
-  // 路径1: 本地 resources/bin/
-  const localPath = path.join(__dirname, "resources", "bin", platformArch, binaryName);
-  if (fs.existsSync(localPath)) {
-    return localPath;
+function getBinaryName(platform, tool) {
+  if (tool === "codex") {
+    return platform === "win32" ? "codex.exe" : "codex";
   }
+  if (tool === "rg") {
+    return platform === "win32" ? "rg.exe" : "rg";
+  }
+  throw new Error(`Unsupported binary tool: ${tool}`);
+}
 
-  // 路径2: npm @cometix/codex/vendor/
-  const targetTriple = TARGET_TRIPLE_MAP[platformArch];
-  if (targetTriple) {
-    const npmPath = path.join(
-      __dirname, "node_modules", "@cometix", "codex", "vendor",
-      targetTriple, "codex", binaryName
-    );
-    if (fs.existsSync(npmPath)) {
-      return npmPath;
+function getTargetTriple(platform, arch) {
+  return TARGET_TRIPLE_MAP[`${platform}-${arch}`] || null;
+}
+
+function getStagedCodexDir(platform, arch) {
+  const dirPath = path.join(
+    __dirname,
+    "resources",
+    "bin",
+    `${platform}-${arch}`,
+  );
+  return fs.existsSync(dirPath) ? dirPath : null;
+}
+
+function getVendorTargetRoot(packageName, targetTriple) {
+  return path.join(
+    __dirname,
+    "node_modules",
+    ...packageName.split("/"),
+    "vendor",
+    targetTriple,
+  );
+}
+
+function listFilesFlat(dirPath) {
+  if (!fs.existsSync(dirPath)) return [];
+  return fs
+    .readdirSync(dirPath, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(dirPath, entry.name));
+}
+
+function getCodexRuntimeFiles(platform, arch) {
+  const platformArch = `${platform}-${arch}`;
+  const codexName = getBinaryName(platform, "codex");
+  const rgName = getBinaryName(platform, "rg");
+  const triedPaths = [];
+
+  const stagedDir = getStagedCodexDir(platform, arch);
+  if (stagedDir) {
+    triedPaths.push(stagedDir);
+    const stagedCodex = path.join(stagedDir, codexName);
+    const stagedRipgrep = path.join(stagedDir, rgName);
+
+    if (fs.existsSync(stagedCodex) && fs.existsSync(stagedRipgrep)) {
+      const files = listFilesFlat(stagedDir).filter(
+        (filePath) => path.basename(filePath) !== ".codex-stage.json",
+      );
+      return {
+        platformArch,
+        codexName,
+        rgName,
+        sourceDescription: `resources/bin/${platformArch}`,
+        files,
+        triedPaths,
+      };
     }
   }
 
-  return null;
+  const targetTriple = getTargetTriple(platform, arch);
+  if (!targetTriple) {
+    return {
+      platformArch,
+      codexName,
+      rgName,
+      sourceDescription: null,
+      files: [],
+      triedPaths,
+    };
+  }
+
+  const packageSearchOrder = CODEX_NODE_MODULE_PACKAGES.map((resolver) =>
+    resolver(platformArch),
+  );
+
+  for (const packageName of packageSearchOrder) {
+    const vendorTargetRoot = getVendorTargetRoot(packageName, targetTriple);
+    triedPaths.push(vendorTargetRoot);
+
+    const codexDir = path.join(vendorTargetRoot, "codex");
+    const pathDir = path.join(vendorTargetRoot, "path");
+    const codexPath = path.join(codexDir, codexName);
+    const rgPath = path.join(pathDir, rgName);
+
+    if (!fs.existsSync(codexPath) || !fs.existsSync(rgPath)) {
+      continue;
+    }
+
+    const runtimeFiles = [...listFilesFlat(codexDir), rgPath];
+    return {
+      platformArch,
+      codexName,
+      rgName,
+      sourceDescription: `node_modules/${packageName}/vendor/${targetTriple}`,
+      files: [...new Set(runtimeFiles)],
+      triedPaths,
+    };
+  }
+
+  return {
+    platformArch,
+    codexName,
+    rgName,
+    sourceDescription: null,
+    files: [],
+    triedPaths,
+  };
 }
 
 module.exports = {
@@ -499,26 +598,56 @@ module.exports = {
 
     // 打包后复制对应平台的 codex 二进制
     packageAfterCopy: async (config, buildPath, electronVersion, platform, arch) => {
-      console.log(`\n📦 Packaging for ${platform}-${arch}...`);
+      const runtime = getCodexRuntimeFiles(platform, arch);
+      const platformArch = `${platform}-${arch}`;
+      const resourcesPath = path.dirname(buildPath);
+
+      console.log(`\n[packageAfterCopy] Packaging for ${platformArch}...`);
       console.log(`   buildPath: ${buildPath}`);
 
-      const codexSrc = getCodexBinaryPath(platform, arch);
-      const binaryName = platform === "win32" ? "codex.exe" : "codex";
-
-      // buildPath 指向 app 目录，其父目录即为 Resources (macOS) 或 resources (其他)
-      const resourcesPath = path.dirname(buildPath);
-      const codexDest = path.join(resourcesPath, binaryName);
-
-      if (codexSrc && fs.existsSync(codexSrc)) {
-        fs.copyFileSync(codexSrc, codexDest);
-        fs.chmodSync(codexDest, 0o755);
-        console.log(`✅ Copied codex binary: ${codexSrc} -> ${codexDest}`);
-      } else {
-        console.error(`❌ Codex binary not found for ${platform}-${arch}`);
-        console.error(`   Tried: resources/bin/${platform}-${arch}/${binaryName}`);
-        console.error(`   Tried: node_modules/@cometix/codex/vendor/.../codex/${binaryName}`);
-        process.exit(1);
+      if (runtime.files.length === 0) {
+        const tried = runtime.triedPaths.length
+          ? runtime.triedPaths.map((candidate) => `   - ${candidate}`).join("\n")
+          : "   - (none)";
+        throw new Error(
+          [
+            `Codex runtime files not found for ${platformArch}.`,
+            `Required files: ${runtime.codexName}, ${runtime.rgName}.`,
+            "Checked:",
+            tried,
+          ].join("\n"),
+        );
       }
+
+      const filesToCopy = [...new Set(runtime.files)];
+      const copiedNames = [];
+      for (const sourcePath of filesToCopy) {
+        const fileName = path.basename(sourcePath);
+        if (fileName === ".codex-stage.json") continue;
+
+        const destinationPath = path.join(resourcesPath, fileName);
+        fs.copyFileSync(sourcePath, destinationPath);
+        if (platform !== "win32") {
+          fs.chmodSync(destinationPath, 0o755);
+        }
+        copiedNames.push(fileName);
+      }
+
+      const codexDest = path.join(resourcesPath, runtime.codexName);
+      const rgDest = path.join(resourcesPath, runtime.rgName);
+      if (!fs.existsSync(codexDest) || !fs.existsSync(rgDest)) {
+        throw new Error(
+          [
+            `Codex runtime copy verification failed for ${platformArch}.`,
+            "Expected destination files:",
+            `   - ${codexDest}`,
+            `   - ${rgDest}`,
+          ].join("\n"),
+        );
+      }
+
+      console.log(`   Runtime source: ${runtime.sourceDescription}`);
+      console.log(`   Copied files: ${copiedNames.join(", ")}`);
     },
   },
 };
