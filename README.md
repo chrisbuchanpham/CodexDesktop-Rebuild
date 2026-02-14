@@ -54,9 +54,9 @@ npm run dev
 ## Comprehensive Stability Verification
 
 - Stability Gate Status: `BLOCKED`
-- Last Verified (UTC): `2026-02-14T16:46:09Z`
+- Last Verified (UTC): `2026-02-14T16:47:15Z`
 - Verification Date: `February 14, 2026`
-- Commit: `a45045f` (`codex/release-1.0.5`)
+- Commit: `151fcb1` (`codex/release-1.0.5`)
 - Environment: `Windows NT 10.0.26200.0`, `Node v24.13.0`, `npm 11.6.2`
 
 Stable may only be claimed when every required check below is `PASS`.
@@ -70,7 +70,7 @@ Stable may only be claimed when every required check below is `PASS`.
 | Binary staging validation (required) | `npm run stage:all -- --force`; verify `resources/bin/<target>/.codex-stage.json` and expected binaries | `PASS` | Targets staged as `0.101.0-darwin-arm64`, `0.101.0-darwin-x64`, `0.101.0-linux-arm64`, `0.101.0-linux-x64`, `0.101.0-win32-x64`; expected `codex`/`rg` binaries present for each target | Staging gate passes for all configured targets in `scripts/codex-targets.json` |
 | Host packaging smoke (Windows, required) | `npm run build:win-x64`; validate packaged `resources/bin/win32-x64` artifacts in `out/` | `BLOCKED` | Build reached packaging hooks and copied runtime files, but forge failed on native rebuild (`node-pty`) due missing Visual Studio toolchain; no final `out/` package emitted | Cannot claim packaging stability until build completes end-to-end |
 | Runtime smoke + Spark validation (required) | Launch with `npm run dev`; manually validate sign-in, Spark picker visibility, and Spark turn execution | `BLOCKED` | `npm run dev` bootstrap attempt timed out (`124s`); required interactive ChatGPT sign-in + Spark turn checks were not completed in this run | Spark support remains unverified for this verification pass |
-| CI matrix gate (required) | GitHub Actions REST check of `chrisbuchanpham/CodexDesktop-Rebuild` workflow `build.yml` for current branch/commit and required jobs (`build-mac`, `build-windows`, `build-linux`) | `PASS` | HEAD run `https://github.com/chrisbuchanpham/CodexDesktop-Rebuild/actions/runs/21986477955` is `success` for commit `a45045f...`; required jobs all `success` | CI gate is green for current HEAD on fork |
+| CI matrix gate (required) | GitHub Actions REST check of `chrisbuchanpham/CodexDesktop-Rebuild` workflow `build.yml` for current branch/commit and required jobs (`build-mac`, `build-windows`, `build-linux`) | `BLOCKED` | No `build.yml` workflow run currently exists for exact `HEAD` commit `151fcb1...` on `codex/release-1.0.5` | Trigger a run for this exact commit and require all three jobs to pass before release |
 
 ## Program Structure
 
