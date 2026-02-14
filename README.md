@@ -31,6 +31,16 @@ npm run dev
 | `node --check forge.config.js` | ✅ Pass |
 | `node --check scripts/patch-console-epipe.js` | ✅ Pass |
 
+## Supported Platforms
+
+| Platform | Status |
+| --- | --- |
+| Windows x64 | ✅ Supported |
+| macOS x64 | ✅ Supported |
+| macOS arm64 | ✅ Supported |
+| Linux x64 | ✅ Supported |
+| Linux arm64 | ✅ Supported |
+
 ## Program Structure
 
 ```text
